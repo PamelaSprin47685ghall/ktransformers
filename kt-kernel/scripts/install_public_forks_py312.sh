@@ -38,6 +38,7 @@ source "${VENV_DIR}/bin/activate"
 
 python -m pip install --upgrade pip setuptools wheel
 python -m pip uninstall -y sglang sglang-kt || true
+python -m pip install pytest
 
 echo "installing public sglang fork"
 python -m pip install "sglang-kt @ ${SGLANG_URL}"
