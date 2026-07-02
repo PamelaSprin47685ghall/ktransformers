@@ -1,5 +1,5 @@
-# HF 元数据（无 safetensors 权重）
+# HF metadata only (no weights, no tokenizer.json / index)
 
-供 `gguf_gpu_slice_to_hf_awq_prep` / `package_gguf_bf16_for_awq` 的 `--hf-template`。
+Use `ORNITH_ROOT/Ornith-1.0-35B-hf` or `huggingface-cli download deepreinforce-ai/Ornith-1.0-35B --include "*.json" --exclude "*.safetensors*"` for tokenizer + index.
 
-本地完整工作区可仍用 `../Ornith-1.0-35B-hf`；仅 clone 本仓时用本目录。
+Export/package default template: this dir if `config.json` exists, else `ORNITH_ROOT/Ornith-1.0-35B-hf`.
