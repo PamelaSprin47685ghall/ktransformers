@@ -14,6 +14,8 @@ import torch
 from enum import IntEnum
 from safetensors import safe_open
 from gguf.gguf_reader import GGUFReader
+from .gguf_ik_types import IK_GGML_QUANT_SIZES
+from .gguf_raw_reader import read_gguf_tensor_index
 
 
 class GGMLQuantizationType(IntEnum):
@@ -753,9 +755,38 @@ class GGUFLoader:
         self.tensor_file_map = {}
         self.file_data_map = {}
 
+        self._use_ik_types = False
+
         if os.path.isfile(gguf_path) and gguf_path.endswith(".gguf"):
-            print(f"\n[GGUFLoader] Loading single GGUF file : {os.path.basename(gguf_path)}")
-            self._load_single_file(gguf_path)
+            # Check env var: force raw reader (bypasses GGUFReader entirely)
+            force_raw = os.environ.get("KT_GGUF_RAW_IK", "").strip()
+            if force_raw == "1":
+                print(f"\n[GGUFLoader] KT_GGUF_RAW_IK=1 → using raw reader (bypassing GGUFReader)")
+                self._load_single_file_raw(gguf_path)
+            else:
+                print(f"\n[GGUFLoader] Loading single GGUF file : {os.path.basename(gguf_path)}")
+                try:
+                    self._load_single_file(gguf_path)
+                except Exception as e:
+                    err_str = str(e)
+                    use_raw = (
+                        "GGMLQuantizationType" in err_str
+                        or "not a valid" in err_str.lower()
+                        or "cannot reshape" in err_str.lower()
+                        or "unknown" in err_str.lower()
+                    )
+                    if use_raw:
+                        print(
+                            f"[GGUFLoader] GGUFReader failed ({e}); "
+                            "falling back to raw tensor-index reader"
+                        )
+                        self.tensor_info.clear()
+                        self.metadata.clear()
+                        self.tensor_file_map.clear()
+                        self.file_data_map.clear()
+                        self._load_single_file_raw(gguf_path)
+                    else:
+                        raise
         elif os.path.isdir(gguf_path):
             print(f"\n[GGUFLoader] Loading GGUF files from directory: {gguf_path}")
             self._load_directory(gguf_path)
@@ -770,7 +801,12 @@ class GGUFLoader:
         for key in tensors:
             if key in self.tensor_info:
                 info = self.tensor_info[key]
-                print(f" {'.'.join(key.split('.')[2:-1])}, Dtype: {info['dtype'].name}")
+                dtype_val = info["dtype"]
+                if hasattr(dtype_val, "name"):
+                    dtype_str = dtype_val.name
+                else:
+                    dtype_str = str(dtype_val)
+                print(f" {'.'.join(key.split('.')[2:-1])}, Dtype: {dtype_str}")
 
     def _load_single_file(self, file_path: str):
         """Load a single GGUF file"""
@@ -797,6 +833,34 @@ class GGUFLoader:
             self.tensor_file_map[tensor.name] = file_path
 
         self.file_data_map[file_path] = np.memmap(file_path, mode="r")
+
+    def _load_single_file_raw(self, file_path: str):
+        """Load a single GGUF file using the raw tensor-index reader.
+
+        Bypasses ``GGUFReader`` entirely, so dtype IDs unknown to the
+        ``GGMLQuantizationType`` enum (e.g. ik R4 types) are handled
+        correctly as raw integers.
+        """
+        idx = read_gguf_tensor_index(file_path)
+
+        # Note: raw reader does not parse KV metadata fields.
+        # self.metadata stays empty (not needed for tensor access).
+
+        for name, meta in idx.items():
+            if name.startswith("general.") or name.startswith("tokenizer."):
+                # Skip metadata-like entries that happen to be in tensor index.
+                # (The raw reader only returns tensor entries, but let's be safe.)
+                continue
+            self.tensor_info[name] = {
+                "shape": list(meta.shape),
+                "dtype": meta.dtype_id,       # raw int, not an enum
+                "offset": meta.data_offset,
+                "n_elements": meta.n_elements,
+            }
+            self.tensor_file_map[name] = file_path
+
+        self.file_data_map[file_path] = np.memmap(file_path, mode="r")
+        self._use_ik_types = True
 
     def _load_directory(self, dir_path: str):
         """Load all GGUF files from a directory (non-recursive)"""
@@ -978,39 +1042,56 @@ class GGUFLoader:
         n_elements = info["n_elements"]
         ggml_type = info["dtype"]
 
-        GGML_QUANT_SIZES = {
-            GGMLQuantizationType.F32: (1, 4),
-            GGMLQuantizationType.F16: (1, 2),
-            GGMLQuantizationType.BF16: (1, 2),
-            GGMLQuantizationType.Q4_0: (32, 2 + 16),
-            GGMLQuantizationType.Q4_1: (32, 2 + 2 + 16),
-            GGMLQuantizationType.Q5_0: (32, 2 + 4 + 16),
-            GGMLQuantizationType.Q5_1: (32, 2 + 2 + 4 + 16),
-            GGMLQuantizationType.Q8_0: (32, 2 + 32),
-            GGMLQuantizationType.Q8_1: (32, 4 + 4 + 32),
-            GGMLQuantizationType.Q2_K: (256, 2 + 2 + 256 // 16 + 256 // 4),
-            GGMLQuantizationType.Q3_K: (256, 2 + 256 // 4 + 256 // 8 + 12),
-            GGMLQuantizationType.Q4_K: (256, 2 + 2 + 256 // 2 + 12),
-            GGMLQuantizationType.Q5_K: (256, 2 + 2 + 256 // 2 + 256 // 8 + 12),
-            GGMLQuantizationType.Q6_K: (256, 2 + 256 // 2 + 256 // 4 + 256 // 16),
-            GGMLQuantizationType.Q8_K: (256, 4 + 256 + 256 // 8),
-            GGMLQuantizationType.IQ2_XXS: (256, 2 + 256 // 4),
-            GGMLQuantizationType.IQ2_XS: (256, 2 + 256 // 4 + 256 // 32),
-            GGMLQuantizationType.IQ3_XXS: (256, 2 + 256 // 4 + 256 // 8),
-            GGMLQuantizationType.IQ1_S: (256, 2 + 256 // 8 + 256 // 16),
-            GGMLQuantizationType.IQ4_NL: (32, 2 + 16),
-            GGMLQuantizationType.IQ3_S: (256, 2 + 256 // 4 + 256 // 8 + 256 // 32 + 4),
-            GGMLQuantizationType.IQ2_S: (256, 2 + 256 // 4 + 256 // 16),
-            GGMLQuantizationType.IQ4_XS: (256, 2 + 2 + 256 // 2 + 256 // 64),
-            GGMLQuantizationType.I8: (1, 1),
-            GGMLQuantizationType.I16: (1, 2),
-            GGMLQuantizationType.I32: (1, 4),
-            GGMLQuantizationType.I64: (1, 8),
-            GGMLQuantizationType.F64: (1, 8),
-            GGMLQuantizationType.IQ1_M: (256, 256 // 8 + 256 // 16 + 256 // 32),
+        # Build a combined quant-sizes dict keyed by int value.
+        # This supports both standard types (GGMLQuantizationType enum)
+        # and IK extended types (raw int IDs).
+        _GGML_QUANT_SIZES_INT: dict[int, tuple[int, int]] = {
+            int(k): v for k, v in {
+                GGMLQuantizationType.F32: (1, 4),
+                GGMLQuantizationType.F16: (1, 2),
+                GGMLQuantizationType.BF16: (1, 2),
+                GGMLQuantizationType.Q4_0: (32, 2 + 16),
+                GGMLQuantizationType.Q4_1: (32, 2 + 2 + 16),
+                GGMLQuantizationType.Q5_0: (32, 2 + 4 + 16),
+                GGMLQuantizationType.Q5_1: (32, 2 + 2 + 4 + 16),
+                GGMLQuantizationType.Q8_0: (32, 2 + 32),
+                GGMLQuantizationType.Q8_1: (32, 4 + 4 + 32),
+                GGMLQuantizationType.Q2_K: (256, 2 + 2 + 256 // 16 + 256 // 4),
+                GGMLQuantizationType.Q3_K: (256, 2 + 256 // 4 + 256 // 8 + 12),
+                GGMLQuantizationType.Q4_K: (256, 2 + 2 + 256 // 2 + 12),
+                GGMLQuantizationType.Q5_K: (256, 2 + 2 + 256 // 2 + 256 // 8 + 12),
+                GGMLQuantizationType.Q6_K: (256, 2 + 256 // 2 + 256 // 4 + 256 // 16),
+                GGMLQuantizationType.Q8_K: (256, 4 + 256 + 256 // 8),
+                GGMLQuantizationType.IQ2_XXS: (256, 2 + 256 // 4),
+                GGMLQuantizationType.IQ2_XS: (256, 2 + 256 // 4 + 256 // 32),
+                GGMLQuantizationType.IQ3_XXS: (256, 2 + 256 // 4 + 256 // 8),
+                GGMLQuantizationType.IQ1_S: (256, 2 + 256 // 8 + 256 // 16),
+                GGMLQuantizationType.IQ4_NL: (32, 2 + 16),
+                GGMLQuantizationType.IQ3_S: (256, 2 + 256 // 4 + 256 // 8 + 256 // 32 + 4),
+                GGMLQuantizationType.IQ2_S: (256, 2 + 256 // 4 + 256 // 16),
+                GGMLQuantizationType.IQ4_XS: (256, 2 + 2 + 256 // 2 + 256 // 64),
+                GGMLQuantizationType.I8: (1, 1),
+                GGMLQuantizationType.I16: (1, 2),
+                GGMLQuantizationType.I32: (1, 4),
+                GGMLQuantizationType.I64: (1, 8),
+                GGMLQuantizationType.F64: (1, 8),
+                GGMLQuantizationType.IQ1_M: (256, 256 // 8 + 256 // 16 + 256 // 32),
+            }.items()
+        }
+        # Merge IK extended types on top.
+        _COMBINED_QUANT_SIZES: dict[int, tuple[int, int]] = {
+            **_GGML_QUANT_SIZES_INT,
+            **IK_GGML_QUANT_SIZES,
         }
 
-        block_size, type_size = GGML_QUANT_SIZES[ggml_type]
+        dtype_key = int(ggml_type) if not isinstance(ggml_type, int) else ggml_type
+        try:
+            block_size, type_size = _COMBINED_QUANT_SIZES[dtype_key]
+        except KeyError:
+            raise ValueError(
+                f"Unknown quantization type {ggml_type} (int value {dtype_key}) "
+                f"for tensor {name!r}"
+            )
         n_bytes = n_elements * type_size // block_size
 
         data_bytes = mmap_data[offset : offset + n_bytes]
