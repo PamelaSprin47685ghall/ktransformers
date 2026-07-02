@@ -1,6 +1,6 @@
 # Ornith 运维脚本
 
-从 Ornith 工作区根目录执行；自动探测 `ORNITH_ROOT`（`ktransformers` 的上一级）。
+从工作区根执行；`HF_TEMPLATE` 默认 `kt-kernel/fixtures/Ornith-1.0-35B-hf`（环境变量 `TEMPLATE` 可覆盖）。
 
 | 脚本 | 作用 |
 |------|------|

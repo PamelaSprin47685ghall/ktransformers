@@ -1,6 +1,6 @@
 # AGENTS — Ornith 成就目录
 
-面向接手 Agent/工程师的**索引**：成就落在哪、怎么跑、禁什么。细节见 `移交报告-2026-07-02.md`、`移交报告.md`、`GGUF_on_the_fly.txt`（工作区根，不入本仓）。
+面向接手 Agent/工程师的**索引**：成就落在哪、怎么跑、禁什么。细节见 `移交报告-2026-07-02.md`、`移交报告.md`、`kt-kernel/docs/ornith/GGUF_on_the_fly.txt`。
 
 ## 0. 架构成就（已定稿）
 
@@ -18,7 +18,7 @@
 |----------------|----------|----------------|
 | `ktransformers/` | `PamelaSprin47685ghall/ktransformers` | 工具链、ornith 脚本、GGUF 提取、AWQ 打包、AVX2 修复、per_commit 测试 |
 | `sglang-fork/` | `PamelaSprin47685ghall/sglang` | qwen35moe GGUF 映射/F32 变换、VL checkpoint 名、out_proj 激活置换、MTP 跳过、MoE 融合加载 |
-| `ik_llama.cpp/` | `PamelaSprin47685ghall/ik_llama.cpp` | 本地 Qwen3.5/量化构建参考（IQ2 类型源） |
+| `ik_llama.cpp/` | `PamelaSprin47685ghall/ik_llama.cpp` | hybrid 量化脚本 `scripts/ornith/`、IQ2 类型源 |
 
 工作区 `Ornith/` 根目录**非 git**；大文件 GGUF/safetensors 不入库。
 
@@ -63,10 +63,10 @@ bash ktransformers/kt-kernel/scripts/ornith/run_sglang_marlin_ik.sh
 | `test_setup_avx2_variant_static.py` | AVX2 无 AVX512 泄漏 |
 | `test_iqk_iq2_k_r4_switch.py` | 337 缺口文档化（红→待 C++ 回填） |
 
-### 2.5 文档 `kt-kernel/docs/ornith/`
+### 2.5 文档与 fixture
 
-- `export-gpu-awq-marlin.md` — GPU 管线
-- `ik-kt-iq2_k_r4-backfill.md` — CPU hybrid 专家 C++ 待办
+- `kt-kernel/docs/ornith/` — `GGUF_on_the_fly.txt`、`export-gpu-awq-marlin.md`、`ik-kt-iq2_k_r4-backfill.md`
+- `kt-kernel/fixtures/Ornith-1.0-35B-hf/` — HF 元数据（无 safetensors）
 
 ### 2.6 构建/安装
 

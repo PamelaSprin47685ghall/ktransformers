@@ -1,6 +1,6 @@
 # GPU：GGUF 反推 AWQ → SGLang awq_marlin
 
-权威：`GGUF_on_the_fly.txt`。代码：`sglang` 的 `gguf_qwen35moe` + `tools/gguf_gpu_slice_to_hf_awq_prep.py`。
+权威：同目录 `GGUF_on_the_fly.txt`；HF 模板默认 `kt-kernel/fixtures/Ornith-1.0-35B-hf`。代码：`sglang` 的 `gguf_qwen35moe` + `tools/gguf_gpu_slice_to_hf_awq_prep.py`。
 
 **脚本目录**：`kt-kernel/scripts/ornith/`（`ORNITH_ROOT` 默认 = 含 `sglang-fork` 与 `ktransformers` 的工作区）。
 

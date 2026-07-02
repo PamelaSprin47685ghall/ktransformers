@@ -1,0 +1,459 @@
+手把手教你给 Qwen 3.5 “松绑”：破限版模型 + vLLM 极速推理全攻略
+ 
+
+全文字数 3092，阅读大约需 16 分钟
+
+1. 引言
+即使gemma4横空出世，但当前公认效果最好的本地模型，依然是qwen3.5。最近海外有一股针对qwen3.5 finetune的热潮：
+
+1. 需求：龙虾的爆火让token需求量暴涨，对本地有消费级显卡的用户而言，一款可以执行agentic 任务的中小规模模型，拥有绝对的吸引力
+图片
+
+2. 模型：qwen3.5-27B是一个非常优秀的模型：得益于dense结构，在agentic的场景里拥有非常好的语义理解，工具调用，工作流串联能力。测评信息：Qwen3.5FamilyToolcallChallenge[1]图片
+3. 趋势：社区当前搜索qwen3.5能看到，排行前面的基本上都是qwen3.5-27B继续训练的版本，着重提升两个方面：
+（1） uncensor破限：可以让模型不再拒绝回答，比如针对一些敏感任务
+（2） claude蒸馏：社区分享的claude opus数据，利用sft+rl的方式对模型微调，减少思维链长度，提升各种benchmark指标。
+图片
+2. 问题说明
+当前最火爆的qwen3.5系列模型分为两类：
+
+Jackrong系列模型[2] ：更专注claude蒸馏上，他会发布gguf saferesor mlx各个版本，这也是最近这个版本的qwen35如此火爆的原因
+Build Environment Upgrades:
+
+• Fine-tuning Framework: Unsloth 2026.3.3
+• Core Dependencies: Transformers 5.2.0
+• This model fixes the crash in the official model caused by the Jinja template not supporting the "developer" role. (commonly sent by modern coding agents like Claude Code and OpenCode)
+• It does not disable thinking mode by default, and allowing the agent to run continuously for over 9 minutes without interruption
+• Compared to the original model, autonomy and stability are significantly improved
+
+Hauhau系列模型[3]：更专注破限，而且在破限的基础上，自身的智能，语义理解得到了最大程度的保留
+0/465 refusals. Fully uncensored with zero capability loss.No changes to datasets or capabilities. Fully functional, 100% of what the original authors intended - just without the refusals.These are meant to be the best lossless uncensored models out there.
+
+任务分析：
+
+1. 我们当前场景的目标更在乎破限，自然选择了Hauhau的9B系列，来对输入图文进行推理 😄
+
+2. 区别于本地直接使用llama.cpp推理gguf格式，我们目的是将该类模型高性能serving起来。而当前主流的推理框架sglang&vllm对gguf推理的支持都不是很好 😭
+2.1 工作说明
+项目目标非常清晰：将 GGUF 格式的破限模型转换为 HuggingFace safetensors 格式，使其能够通过 vLLM 进行推理。
+
+gguf格式和safetensor格式，简单对比如下：
+
+维度	GGUF	Safetensors
+定位	端侧/本地专用
+：针对消费级硬件优化。
+云端/工业通用
+：高性能推理的标准格式。
+引擎	llama.cpp
+, Ollama, LM Studio
+vLLM
+, SGLang, TGI, TensorRT-LLM
+硬件	CPU/GPU 混合推理
+，支持内存/显存动态分配。
+纯 GPU 算力加速
+，利用显卡 Tensor Core 性能。
+并发	
+较低，适合单人、低并发的本地交互。
+极高
+，支持连续批处理（Continuous Batching）。
+2.2 项目说明
+gguf原始项目[4]文件如下：
+
+File
+Quant
+Size
+Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf
+BF16
+17 GB
+Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q8_0.gguf
+Q8_0
+8.9 GB
+Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q6_K.gguf
+Q6_K
+6.9 GB
+Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf
+Q4_K_M
+5.3 GB
+mmproj-Qwen3.5-9B-Uncensored-HauhauCS-Aggressive-BF16.gguf
+Vision encoder
+880 MB
+qwen3.5属于原生多模态模型，mmproj文件是对应的视觉encoder部分，用来处理输入的image/video部分，和主gguf协同推理
+9B模型，有32层架构，并且利用了线性注意力机制：Gated DeltaNet linear attention + full softmax attention (3:1 ratio)
+qwen3.5模型中额外有一个mtp模块，用来做multi-token prediction
+2.3 权重数量变化
+模型部分
+原始 HF 权重数
+主 GGUF 权重数
+mmproj GGUF 权重数
+总计
+775	427	334
+gguf和safetensor权重数存在差异，具体包含两个因素：
+
+MTP 权重缺失（+15）
+llama.cpp 未实现 MTP（Multi-Token Prediction）加速推理，因此 GGUF 格式中完全不包含这 15 个权重。转换时直接保留原始 HF 模型中的 MTP 权重不替换。
+
+权重名称
+形状 (9B)
+mtp.fc.weight	
+[4096, 8192]
+mtp.norm.weight	
+[4096]
+mtp.pre_fc_norm_embedding.weight	
+[4096]
+mtp.pre_fc_norm_hidden.weight	
+[4096]
+mtp.layers.0.input_layernorm.weight	
+[4096]
+mtp.layers.0.post_attention_layernorm.weight	
+[4096]
+mtp.layers.0.mlp.down_proj.weight	
+[4096, 12288]
+mtp.layers.0.mlp.gate_proj.weight	
+[12288, 4096]
+mtp.layers.0.mlp.up_proj.weight	
+[12288, 4096]
+mtp.layers.0.self_attn.q_proj.weight	
+[8192, 4096]
+mtp.layers.0.self_attn.k_proj.weight	
+[1024, 4096]
+mtp.layers.0.self_attn.v_proj.weight	
+[1024, 4096]
+mtp.layers.0.self_attn.o_proj.weight	
+[4096, 4096]
+mtp.layers.0.self_attn.q_norm.weight	
+[256]
+mtp.layers.0.self_attn.k_norm.weight	
+[256]
+patch_embed 合并（-1）
+视觉头mmproj GGUF 中存储为 2 个独立的 4D 张量，而HF safetensor 中是 1 个 5D 张量：
+
+格式
+权重名称
+形状
+GGUF
+v.patch_embd.weight	
+[1152, 3, 16, 16]
+GGUF
+v.patch_embd.weight.1	
+[1152, 3, 16, 16]
+HF
+model.visual.patch_embed.proj.weight	
+[1152, 3, 2, 16, 16]
+in_proj_qkvz层合并（每层-1）
+变换
+GGUF 侧
+HF 侧
+说明
+in_proj_qkvz 合并	
+每层 2 个 (attn_qkv + attn_gate)
+每层 1 个 (in_proj_qkvz)
+通过 merge_qkv_z_to_qkvz 逆 reshape 合并
+总结
+`HF总权重 = 主GGUF + mmproj GGUF + 15(MTP) - 1(patch_embed)
+• [-] 2B模型:  320 + 298 + 15 - 1 = 632
+• [-] 9B模型:  427 + 334 + 15 - 1 = 775
+其他权重（包括 in_proj_qkv/in_proj_z） 1:1 映射，不影响数量。
+
+2.5 权重数值变化
+GGUF 存储格式与 HF 存储格式在数学表达上的差异：norm ±1、A_log 指数/对数、V heads 排列顺序等，这可以从llama.cpp[5]原始文件中读取。反变换的时候要逐一更改：
+
+权重
+变换操作
+原因
+A_log	torch.log(-t)	
+GGUF 存储的是 -exp(A_log)，需反变换
+conv1d.weight	
+V reorder + reshape(out_ch,4) → (out_ch,1,4)
+2D→3D 维度恢复 + V heads 反向重排
+input_layernorm.weight	t - 1.0	
+GGUF 中存储的是 HF 值 +1
+post_attention_layernorm.weight	t - 1.0	
+同上
+q_norm.weight
+ / k_norm.weight
+t - 1.0	
+同上
+linear_attn.norm.weight	不做
+ -1
+此 norm 是例外，无偏移
+V heads 相关权重
+（in_proj_qkv、in_proj_z、in_proj_a/b、out_proj、A_log、dt_bias、conv1d）
+tiled → grouped
+ 反向重排序
+GGUF 转换时做了 grouped → tiled 重排
+2.4 关键难点
+权重数量和取值差异明晰后，我们参考llama.cpp代码，明确了权重回推的所有难点：
+
+1. 权重命名映射: GGUF 与 HF 使用不同的命名规范
+2. V Heads 重排序: HF→GGUF 转换时进行了 grouped → tiled 重排，需反向处理
+3. in_proj_qkvz 合并: GGUF 中拆分为 attn_qkv + attn_gate，需合并回 in_proj_qkvz
+4. Tensor 形状变换: 如 conv1d.weight 从 2D (6144,4) 需转换为 3D (6144,1,4)
+5. 数值转换: A_log 等特殊权重需要进行数学变换
+6. Norm 权重偏移: 部分 norm 权重存在 ±1 偏移
+3.核心实现方案
+根据以上分析，我们结合原始版本[6]权重做如下转换：
+
+1. 加载原始 HF 模型作为基础模板
+2. 加载主 GGUF 文件
+3. 加载 mmproj GGUF 文件
+4. 替换语言模型权重 (应用必要变换)
+5. 替换视觉模型权重
+6. 保留原始 MTP 权重
+7. 保存输出 (支持分片)
+3.1 语言模型权重映射
+这部分只涉及字符串映射，其中：
+
+• token_embd和output_norm，可直接按照语义硬编码，直接映射：
+GGUF 名称
+HF 名称
+token_embd.weight	model.language_model.embed_tokens.weight
+output_norm.weight	model.language_model.norm.weight
+• 每层layer_idx的权重映射,分为三类：
+• 所有层：ffn和mlp关联
+• Mamba 层：ssm_和linear_attn关联 (注意attn_qkv和attn_gate)
+• Attention 层：attn和model.language_model.layers.{layer_idx}.self_attn关联
+GGUF 后缀 (blk.N.xxx)
+HF 名称 (model.language_model.layers.N.xxx)
+所属层类型
+attn_norm.weight	input_layernorm.weight	
+所有层
+post_attention_norm.weight	post_attention_layernorm.weight	
+所有层
+ffn_down.weight	mlp.down_proj.weight	
+所有层
+ffn_gate.weight	mlp.gate_proj.weight	
+所有层
+ffn_up.weight	mlp.up_proj.weight	
+所有层
+ssm_a	linear_attn.A_log	
+Mamba 层
+ssm_conv1d.weight	linear_attn.conv1d.weight	
+Mamba 层
+ssm_dt.bias	linear_attn.dt_bias	
+Mamba 层
+ssm_alpha.weight	linear_attn.in_proj_a.weight	
+Mamba 层
+ssm_beta.weight	linear_attn.in_proj_b.weight	
+Mamba 层
+attn_qkv.weight	linear_attn.in_proj_qkv.weight	
+Mamba 层
+attn_gate.weight	linear_attn.in_proj_z.weight	
+Mamba 层
+ssm_norm.weight	linear_attn.norm.weight	
+Mamba 层
+ssm_out.weight	linear_attn.out_proj.weight	
+Mamba 层
+attn_q.weight	self_attn.q_proj.weight	
+Attention 层
+attn_k.weight	self_attn.k_proj.weight	
+Attention 层
+attn_v.weight	self_attn.v_proj.weight	
+Attention 层
+attn_output.weight	self_attn.o_proj.weight	
+Attention 层
+attn_q_norm.weight	self_attn.q_norm.weight	
+Attention 层
+attn_k_norm.weight	self_attn.k_norm.weight	
+Attention 层
+映射本身就是字典查找，不涉及任何数值变换。数值变换是在映射完成后，由 transform_weight[7]函数单独处理的（A_log、conv1d reshape、norm -1 等）。
+
+3.2 视觉模型权重映射
+这部分也属于字符串映射，不涉及数值变换分为三类：
+
+非 block 全局权重（硬编码映射）
+这部分使用语义直接得到
+
+GGUF 名称
+HF 名称
+mm.0.weight	model.visual.merger.linear_fc1.weight
+mm.0.bias	model.visual.merger.linear_fc1.bias
+mm.2.weight	model.visual.merger.linear_fc2.weight
+mm.2.bias	model.visual.merger.linear_fc2.bias
+v.post_ln.weight	model.visual.merger.norm.weight
+v.post_ln.bias	model.visual.merger.norm.bias
+v.patch_embd.bias	model.visual.patch_embed.proj.bias
+v.position_embd.weight	model.visual.pos_embed.weight
+patch_embed 特殊处理（2→1 合并）
+这里包含提到的权重数量变化：
+
+变换
+GGUF 侧
+HF 侧
+说明
+patch_embed 合并	
+2个 4D 张量 (v.patch_embd.weight + v.patch_embd.weight.1)
+1个 5D 张量 (patch_embed.proj.weight)
+torch.stack
+ 合并，2→1
+实际处理中v.patch_embd.weight 和 v.patch_embd.weight.1 都返回特殊标记 __patch_embed__，在主流程中收集后合并：
+
+# 收集两个 4D 张量patch_embed_parts[0] = t  # v.patch_embd.weight   → [1152, 3, 16, 16]patch_embed_parts[1] = t  # v.patch_embd.weight.1  → [1152, 3, 16, 16]# stack 为 5Dpatch_5d = torch.stack([parts[0], parts[1]], dim=2)  # → [1152, 3, 2, 16, 16]
+这里 dim=2 对应时间维度（视频的 2 帧），合并后写入 model.visual.patch_embed.proj.weight。
+
+Visual block 层内权重（正则提取层号）
+至于每层具体的权重映射，参考下面对照表，提取层号后直接查表：
+
+GGUF 后缀 (v.blk.N.xxx)
+HF 名称 (model.visual.blocks.N.xxx)
+attn_qkv.weight	attn.qkv.weight
+attn_qkv.bias	attn.qkv.bias
+attn_out.weight	attn.proj.weight
+attn_out.bias	attn.proj.bias
+ffn_up.weight	mlp.linear_fc1.weight
+ffn_up.bias	mlp.linear_fc1.bias
+ffn_down.weight	mlp.linear_fc2.weight
+ffn_down.bias	mlp.linear_fc2.bias
+ln1.weight	norm1.weight
+ln1.bias	norm1.bias
+ln2.weight	norm2.weight
+ln2.bias	norm2.bias
+数量匹配
+每个 visual block 有 12 个权重（6 weight + 6 bias）。9B 模型有 27 个 blocks，所以 27 × 12 = 324 个 block 权重，加上 8 个全局权重 + 2 个 patch_embed = 334 个 mmproj 权重。
+
+3.3 V Heads 反向重排序
+这部分是针对linear attention的特殊操作。当然也不是所有Qwen3.5模型都需要做反向排序，实际上 linear_num_key_heads != linear_num_value_heads 时才触发，且仅作用于权重名包含 linear_attn. 的层（Mamba 层），Attention 层不受影响。
+
+Qwen3.5 2B和9B混合架构中，Linear Attention（Mamba）层的 K heads 和 V heads 数量不同：
+
+模型
+num_k_heads
+num_v_heads
+num_v_per_k
+是否需要重排
+2B
+8
+16
+2
+是
+9B
+16
+32
+2
+是
+进行HF→GGUF 转换时，V heads 做了 grouped → tiled 重排：
+
+原始 (grouped):  [K0_V0, K0_V1, K1_V0, K1_V1, ...]  （按 K head 分组）GGUF (tiled):    [K0_V0, K1_V0, ..., K0_V1, K1_V1, ...]  （V 交错排列）
+GGUF→HF 需要做反向：tiled → grouped，具体的就是一个reshape+permute操作：
+
+# 输入 tensor 的目标维度: [num_v_per_k * num_k_heads * head_dim]# 1. reshape 为 [num_v_per_k, num_k_heads, head_dim]tensor = tensor.reshape(num_v_per_k, num_k_heads, head_dim)# 2. permute 交换前两维: [num_k_heads, num_v_per_k, head_dim]tensor = tensor.permute(1, 0, 2)# 3. 展平回原始形状: [num_k_heads * num_v_per_k * head_dim]tensor = tensor.reshape(original_shape)
+各不同的权重类型的具体处理方式，重排策略也有不同：
+
+权重
+重排维度
+head_dim
+特殊处理
+in_proj_qkv.weight	
+dim=0
+head_v_dim
+仅重排 V 部分
+，Q/K 不动
+in_proj_z.weight	
+dim=0
+head_v_dim
+整体重排
+in_proj_a/b.weight	
+dim=0
+1
+head_dim=1（标量权重）
+conv1d.weight	
+dim=0
+head_v_dim
+仅重排 V channel 部分
+，QK 不动
+out_proj.weight	
+dim=1
+head_v_dim
+注意是第二维（输入维度）
+A_log
+ / dt_bias
+dim=0 或 dim=-1
+1
+1D 时需 unsqueeze 再 squeeze
+3.4 特殊权重变换
+权重类型
+变换操作
+A_log	t = torch.log(-t)
+conv1d.weight	reshape(out_ch, 4) → reshape(out_ch, 1, 4)
+input_layernorm.weight	t = t - 1.0
+post_attention_layernorm.weight	t = t - 1.0
+q_norm.weight
+ / k_norm.weight
+t = t - 1.0
+A_log 逆变换
+t = torch.log(-t) 
+原因：HF 中存储的是 A_log（对数形式），HF→GGUF 转换时做了 t = -exp(A_log)，即存储了负指数形式。反向需要 log(-t) 还原。
+
+conv1d.weight：V reorder + 维度恢复
+# 先在 2D 形状上做 V reorder（因为 reorder 沿 dim=0） t = apply_v_reorder_reverse(t, hf_name, config) # 再 reshape: (out_ch, kernel) → (out_ch, 1, kernel) t = t.reshape(out_ch, 1, kernel) 
+原因：HF 中 Conv1d 权重是 3D (out_ch, 1, kernel_size)，GGUF 存储时压缩掉了 groups 维度变成 2D (out_ch, kernel_size)。顺序很关键——必须先做 V reorder 再 reshape，因为 reorder 操作的是 dim=0，reshape 后维度变了会导致错误。
+
+Norm 权重 -1
+涉及 4 类权重，全部做 t = t - 1.0：
+
+权重
+匹配条件
+排除条件
+input_layernorm.weight	'layernorm.weight' in name	
+无
+post_attention_layernorm.weight	'layernorm.weight' in name	
+无
+*.norm.weight
+（如 merger.norm.weight）
+name.endswith('.norm.weight')	'linear_attn' not in name
+q_norm.weight
+ / k_norm.weight
+name.endswith('.q_norm.weight')
+ 或 '.k_norm.weight'
+无
+原因：llama.cpp 的 convert_hf_to_gguf.py 在转换 Qwen3.5 时，对 RMSNorm 权重做了 t = t + 1.0（因为 RMSNorm 计算中有 1 + weight，提前折叠进去优化推理）。反向需要减回来。
+
+关键例外：linear_attn.norm.weight不做 -1。这个是 Mamba 层内部的 GroupNorm，不是 RMSNorm，llama.cpp 没有对它 +1。代码中通过条件 'linear_attn' not in hf_name 排除。
+
+处理优先级
+A_log       → log逆变换 + V reorder → returnconv1d      → V reorder + reshape   → return*.norm.weight (非linear_attn) → -1  → return*layernorm.weight             → -1  → returnq/k_norm.weight               → -1  → return 其他权重    → 仅 V reorder（如果需要）→ return 
+in_proj_qkvz 合并逻辑
+当前9B模型未涉及到该部分，因此不做处理：当 HF 模型使用合并的 in_proj_qkvz 时，需要将 GGUF 中的 attn_qkv 和 attn_gate 合并：
+
+4. 总结
+4.1输出物
+1. 模型权重: model.safetensors-* 文件，就是可以正常用vllm推理的目标文件
+2. 索引文件: model.safetensors.index.json，存储相关的权重索引
+3. 配置文件: 自动从原始模型目录复制
+• config.json
+• tokenizer.json
+• tokenizer_config.json
+• generation_config.json
+• preprocessor_config.json
+4.2 成果
+1. 成功实现 GGUF → HuggingFace safetensors 格式转换
+2. 支持 Qwen3.5 系列 2B、9B 等多种规模模型
+3. 正确处理 Qwen3.5 混合架构（Linear Attention + Self Attention）
+4. 保留原始模型的 MTP 权重
+5. 转换后模型可通过 vLLM 正常推理
+4.3 下一步计划
+vllm改造
+vllm的serverless改造，这部分工作自己也是相当满意，值得单独的一篇有空阐述。
+
+量化极速
+得益于社区的旺盛需求，qwen3.5量化工作也有一些新的突破，比如最近比较火爆的，DataFree的量化方式。代表作就是QuanTrio[8]相关的工作，不需要使用任何量化数据，可以得到非常好的awq模型。最新版本的QuantTrio/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-v2-AWQ 应该是目前最佳的本地agentic模型部署方案，也是下一步研究的重点。
+
+export OMP_NUM_THREADS=4vllm serve \    __YOUR_PATH__/QuantTrio/Qwen3.5-27B-AWQ \    --served-model-name MY_MODEL \    --max-num-seqs 32 \    --max-model-len 32768  \    --gpu-memory-utilization 0.9 \    --tensor-parallel-size 2 \    --enable-auto-tool-choice \        --tool-call-parser qwen3_coder \    --reasoning-parser qwen3 \    --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":2}' \    --trust-remote-code \    --host 0.0.0.0 \    --port 8000
+
+
+引用链接
+[1] Qwen3.5FamilyToolcallChallenge[x]
+
+[2] Jackrong系列模型: https://huggingface.co/collections/Jackrong/qwopus35-v3
+
+[3] Hauhau系列模型: https://huggingface.co/HauhauCS
+
+[4] gguf原始项目: https://huggingface.co/HauhauCS/Qwen3.5-9B-Uncensored-HauhauCS-Aggressive/tree/main
+
+[5] llama.cpp: https://github.com/ggml-org/llama.cpp
+
+[6] 原始版本: https://huggingface.co/Qwen/Qwen3.5-9B[7] transform\_weight: file:///root/mubai/projects/004_spicy_gguf/convert_gguf_v5.py#L369-L412
+
+[8] QuanTrio: https://huggingface.co/QuantTrio
+
+
+
