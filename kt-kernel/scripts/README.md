@@ -5,6 +5,26 @@ KT-Kernel provides weight conversion tools for CPU-GPU hybrid inference (e.g., i
 - **CPU Weights (`convert_cpu_weights.py`)**: Quantize weights to INT4/INT8 with AMX optimization for CPU-resident "cold" experts
 - **GPU Weights (`convert_gpu_weights.py`)**: Apply GPTQ/RTN quantization (W4A16/W8A16) for GPU-resident "hot" experts
 - **KT Fused Expert LoRA (`convert_kt_to_sglang_adapter.py`)**: Convert KT SFT fused expert LoRA checkpoints into adapter-only SafeTensors directories
+- **Public Fork Bootstrap (`install_public_forks_py312.sh`)**: Create a Python 3.12 venv, install the public `sglang-kt` fork, and install local `kt-kernel` in CPU-only AVX2 mode
+
+## Public Fork Bootstrap
+
+For the public-fork development path, use:
+
+```bash
+bash scripts/install_public_forks_py312.sh /path/to/venv
+```
+
+Environment overrides:
+
+```bash
+PYTHON_BIN=python3.12
+FORCE_RECREATE=1
+CPUINFER_FORCE_REBUILD=1
+SGLANG_URL=git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python
+```
+
+This script assumes `hwloc` development files are already installed and deliberately pins the local `kt-kernel` build to `CPUINFER_USE_CUDA=0` and `CPUINFER_CPU_INSTRUCT=AVX2`.
 
 ---
 
