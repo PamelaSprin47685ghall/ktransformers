@@ -82,7 +82,10 @@ def _tensor_to_torch(tensor, dtype: torch.dtype) -> torch.Tensor:
             w = torch.from_numpy(gguf.quants.dequantize(raw, ttype)).to(dtype)
         except Exception as exc:
             raise RuntimeError(f"dequant failed for {name} type {ttype}") from exc
-    return w.reshape(tuple(int(x) for x in tensor.shape))
+    logical = tuple(int(x) for x in tensor.shape)
+    if w.ndim == 2 and w.shape != logical and w.shape == logical[::-1]:
+        return w.contiguous()
+    return w.reshape(logical)
 
 
 def _import_transforms():
