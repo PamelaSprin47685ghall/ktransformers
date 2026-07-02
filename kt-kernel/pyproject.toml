@@ -36,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 sglang = [
-  "sglang-kt",
+  "sglang-kt @ git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python",
 ]
 convert = [
   "compressed-tensors>=0.7.0",

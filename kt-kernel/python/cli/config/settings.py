@@ -58,7 +58,7 @@ DEFAULT_CONFIG = {
         # SGLang installation source configuration
         "sglang": {
             "source": "github",  # "pypi" or "github"
-            "repo": "https://github.com/kvcache-ai/sglang",
+    "repo": "https://github.com/PamelaSprin47685ghall/sglang",
             "branch": "main",
         },
     },
