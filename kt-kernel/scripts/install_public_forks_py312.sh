@@ -7,6 +7,7 @@ VENV_DIR="${1:-.venv-public-py312}"
 SGLANG_URL="${SGLANG_URL:-git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+SGLANG_REPO_ROOT="${SGLANG_REPO_ROOT:-$(cd -- "${REPO_ROOT}/../.." && pwd)/sglang-fork}"
 
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "missing interpreter: ${PYTHON_BIN}" >&2
@@ -50,9 +51,9 @@ activate:
 
 recommended smoke tests:
   python -m pytest test/per_commit/test_setup_avx2_variant_static.py -q
-  python -m pytest ../test/srt/test_qwen35moe_name_mapping.py ../test/srt/test_qwen35moe_transforms.py -q
+  python -m pytest "${SGLANG_REPO_ROOT}/test/srt/test_qwen35moe_name_mapping.py" "${SGLANG_REPO_ROOT}/test/srt/test_qwen35moe_transforms.py" -q
 
 notes:
   - hwloc development files must already be installed.
-  - override PYTHON_BIN, VENV_DIR, SGLANG_URL, CPUINFER_FORCE_REBUILD as needed.
+  - override PYTHON_BIN, VENV_DIR, SGLANG_URL, SGLANG_REPO_ROOT, CPUINFER_FORCE_REBUILD as needed.
 EOF

@@ -22,6 +22,7 @@ PYTHON_BIN=python3.12
 FORCE_RECREATE=1
 CPUINFER_FORCE_REBUILD=1
 SGLANG_URL=git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python
+SGLANG_REPO_ROOT=/abs/path/to/sglang-fork
 ```
 
 This script assumes `hwloc` development files are already installed and deliberately pins the local `kt-kernel` build to `CPUINFER_USE_CUDA=0` and `CPUINFER_CPU_INSTRUCT=AVX2`.
