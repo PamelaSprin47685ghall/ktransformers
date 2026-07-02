@@ -269,7 +269,7 @@ Install the kvcache-ai fork of SGLang (required for kt-kernel support):
 ./install.sh
 
 # Option B: pip install
-pip install kt-kernel sglang-kt
+pip install kt-kernel "sglang-kt @ git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python"
 
 # Option C: From source (editable mode)
 git clone --recursive https://github.com/kvcache-ai/ktransformers.git
@@ -277,7 +277,7 @@ cd ktransformers
 pip install -e "third_party/sglang/python[all]"
 ```
 
-> **Important:** Use `sglang-kt` (kvcache-ai fork), not the official `sglang` package. If you have the official version installed, uninstall it first: `pip uninstall sglang -y`
+> **Important:** Use `sglang-kt` from the public fork `PamelaSprin47685ghall/sglang`, not the official `sglang` package. If you have the official version installed, uninstall it first: `pip uninstall sglang -y`
 
 #### 2. Prepare Weights
 

