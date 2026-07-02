@@ -52,7 +52,7 @@ Marlin 轨（需 AWQ 目录）在 AutoAWQ 支持 MoE 前阻塞；可先完成 `r
 ## 验收
 
 1. `curl http://127.0.0.1:30000/health` ready
-2. `POST /v1/chat/completions` 短英文 prompt；`embed_tokens` 须 `quant_config=gguf` 才有 `qweight`，否则乱码
+2. `POST /v1/chat/completions` 短英文 prompt；`embed_tokens` 须 `quant_config=gguf`；Q6_K `token_embd` 量化缓冲为 **vocab 行**（`index_select` dim=0），勿按逻辑 shape `[hidden,vocab]` 在 dim=1 取列
 3. 日志无 `SIGILL`、无 expert 双重加载、`Parameter model.embed_tokens` not found
 
 ## 备选 on-the-fly
