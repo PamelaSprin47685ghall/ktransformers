@@ -424,34 +424,41 @@ class BaseMoEWrapper(_MoEBase, ABC):
         immediate_experts_ids_cpu[current_slot].copy_(immediate_ids, non_blocking=True)
 
         incremental = BaseMoEWrapper._layer_has_pending_deferred.get(self.layer_idx - 1, False)
-        self.cpu_infer.submit_with_cuda_stream(
-            cuda_stream,
-            self.moe.forward_task(
-                bsz_slot_tensor.data_ptr(),
-                immediate_experts_ids_cpu[current_slot].size(-1),
-                immediate_experts_ids_cpu[current_slot].data_ptr(),
-                weights_cpu[current_slot].data_ptr(),
-                input_tensor_cpu[current_slot].data_ptr(),
-                output_cpu[current_slot].data_ptr(),
-                incremental,
-            ),
+        task = self.moe.forward_task(
+            bsz_slot_tensor.data_ptr(),
+            immediate_experts_ids_cpu[current_slot].size(-1),
+            immediate_experts_ids_cpu[current_slot].data_ptr(),
+            weights_cpu[current_slot].data_ptr(),
+            input_tensor_cpu[current_slot].data_ptr(),
+            output_cpu[current_slot].data_ptr(),
+            incremental,
         )
+        if hasattr(self.cpu_infer, "submit_with_cuda_stream"):
+            self.cpu_infer.submit_with_cuda_stream(cuda_stream, task)
+        else:
+            if cuda_stream is not None and hidden_states.is_cuda:
+                torch.cuda.current_stream(hidden_states.device).synchronize()
+            self.cpu_infer.submit(task)
+            self._cpu_only_pending_sync = True
 
         BaseMoEWrapper._layer_has_pending_deferred[self.layer_idx] = False
         if deferred_ids is not None:
             deferred_experts_ids_cpu[current_slot].copy_(deferred_ids, non_blocking=True)
-            self.cpu_infer.submit_with_cuda_stream(
-                cuda_stream,
-                self.moe.forward_task(
-                    bsz_slot_tensor.data_ptr(),
-                    deferred_experts_ids_cpu[current_slot].size(-1),
-                    deferred_experts_ids_cpu[current_slot].data_ptr(),
-                    weights_cpu[current_slot].data_ptr(),
-                    input_tensor_cpu[current_slot].data_ptr(),
-                    output_cpu[next_slot].data_ptr(),
-                    False,
-                ),
+            task2 = self.moe.forward_task(
+                bsz_slot_tensor.data_ptr(),
+                deferred_experts_ids_cpu[current_slot].size(-1),
+                deferred_experts_ids_cpu[current_slot].data_ptr(),
+                weights_cpu[current_slot].data_ptr(),
+                input_tensor_cpu[current_slot].data_ptr(),
+                output_cpu[next_slot].data_ptr(),
+                False,
             )
+            if hasattr(self.cpu_infer, "submit_with_cuda_stream"):
+                self.cpu_infer.submit_with_cuda_stream(cuda_stream, task2)
+            else:
+                if cuda_stream is not None and hidden_states.is_cuda:
+                    torch.cuda.current_stream(hidden_states.device).synchronize()
+                self.cpu_infer.submit(task2)
             BaseMoEWrapper._layer_has_pending_deferred[self.layer_idx] = True
 
     def sync_forward(self, hidden_states: torch.Tensor, cuda_stream) -> torch.Tensor:
@@ -478,7 +485,12 @@ class BaseMoEWrapper(_MoEBase, ABC):
 
         current_slot = self.layer_idx % KExpertsCPUBuffer.buffer_depth
         allow_pending = 1 if BaseMoEWrapper._layer_has_pending_deferred.get(self.layer_idx, False) else 0
-        self.cpu_infer.sync_with_cuda_stream(cuda_stream, allow_pending)
+        if hasattr(self.cpu_infer, "sync_with_cuda_stream"):
+            self.cpu_infer.sync_with_cuda_stream(cuda_stream, allow_pending)
+        else:
+            self.cpu_infer.sync(allow_pending)
+            if getattr(self, "_cpu_only_pending_sync", False):
+                self._cpu_only_pending_sync = False
         output_gpu[current_slot].copy_(output_cpu[current_slot], non_blocking=True)
         return output_gpu[current_slot]
 
