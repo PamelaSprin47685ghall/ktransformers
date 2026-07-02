@@ -8,6 +8,9 @@ SGLANG_URL="${SGLANG_URL:-git+https://github.com/PamelaSprin47685ghall/sglang.gi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 SGLANG_REPO_ROOT="${SGLANG_REPO_ROOT:-$(cd -- "${REPO_ROOT}/../.." && pwd)/sglang-fork}"
+VENV_PARENT="$(cd -- "$(dirname -- "${VENV_DIR}")" && pwd)"
+export TMPDIR="${TMPDIR:-${VENV_PARENT}/.tmp-install}"
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${HOME}/.cache/pip}"
 
 if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   echo "missing interpreter: ${PYTHON_BIN}" >&2
@@ -24,7 +27,11 @@ if [[ "${FORCE_RECREATE:-0}" == "1" && -e "${VENV_DIR}" ]]; then
   rm -rf "${VENV_DIR}"
 fi
 
+mkdir -p "${TMPDIR}" "${PIP_CACHE_DIR}"
+
 echo "creating venv with ${PYTHON_BIN} at ${VENV_DIR}"
+echo "using TMPDIR=${TMPDIR}"
+echo "using PIP_CACHE_DIR=${PIP_CACHE_DIR}"
 "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 
 source "${VENV_DIR}/bin/activate"
@@ -55,5 +62,6 @@ recommended smoke tests:
 
 notes:
   - hwloc development files must already be installed.
-  - override PYTHON_BIN, VENV_DIR, SGLANG_URL, SGLANG_REPO_ROOT, CPUINFER_FORCE_REBUILD as needed.
+  - avoid placing the venv under /tmp; it is often a tmpfs and too small for torch+cuda wheels.
+  - override PYTHON_BIN, VENV_DIR, SGLANG_URL, SGLANG_REPO_ROOT, TMPDIR, PIP_CACHE_DIR, CPUINFER_FORCE_REBUILD as needed.
 EOF
