@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Temporary staging copy of qwen35moe GGUF helpers.
+
+Source of truth has moved to the public sglang fork under
+`sglang.srt.model_loader.gguf_qwen35moe`.
+Keep this file only until the public-fork installation path is validated in a
+clean Python 3.12 environment, then delete it together with its local tests.
+"""
+
 import re
 from typing import Optional
 

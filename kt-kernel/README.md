@@ -279,6 +279,8 @@ pip install -e "third_party/sglang/python[all]"
 
 > **Important:** Use `sglang-kt` from the public fork `PamelaSprin47685ghall/sglang`, not the official `sglang` package. If you have the official version installed, uninstall it first: `pip uninstall sglang -y`
 
+> **Note:** Qwen3.5 GGUF loader support now lives in the public `sglang` fork. Any similarly named helper modules still present in `kt-kernel` are temporary staging copies and will be removed after the public-fork installation path is validated in a clean Python 3.12 environment.
+
 #### 2. Prepare Weights
 
 You need both GPU weights and CPU-side expert weights for heterogeneous inference. The exact format depends on the backend:

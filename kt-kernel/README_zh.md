@@ -132,6 +132,8 @@ pip install -e "third_party/sglang/python[all]"
 
 > **重要:** 请使用公开 fork `PamelaSprin47685ghall/sglang` 提供的 `sglang-kt`，而非官方 `sglang` 包。如已安装官方版本，请先卸载：`pip uninstall sglang -y`
 
+> **说明:** Qwen3.5 GGUF loader 的正式实现现已收敛到公开 `sglang` fork。`kt-kernel` 中若仍存在同名/近似命名辅助模块，它们只是过渡期副本；待公开 fork 的 Python 3.12 干净安装路径验证完成后会删除。
+
 #### 2. 准备权重
 
 要进行异构推理，需要同时准备 GPU 权重和 CPU 侧 experts 对应的权重，具体格式取决于后端类型：
