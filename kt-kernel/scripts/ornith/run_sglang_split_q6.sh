@@ -23,6 +23,7 @@ exec "${PY}" -m sglang.launch_server \
   --mem-fraction-static 0.85 \
   --disable-cuda-graph \
   --trust-remote-code \
+  --language-only \
   --host 127.0.0.1 \
   --port 30000 \
   "$@"
