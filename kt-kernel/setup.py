@@ -315,6 +315,9 @@ class CMakeBuild(build_ext):
                 {
                     "CPUINFER_CPU_INSTRUCT": "AVX2",
                     "CPUINFER_ENABLE_AVX512": "OFF",
+                    "CPUINFER_ENABLE_AVX512_VNNI": "OFF",
+                    "CPUINFER_ENABLE_AVX512_BF16": "OFF",
+                    "CPUINFER_ENABLE_AVX512_VBMI": "OFF",
                     "CPUINFER_ENABLE_AMX": "OFF",
                 },
             ),
