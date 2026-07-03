@@ -110,3 +110,59 @@ def test_layer0_router_top8_kt_near_torch_dequant():
 
     rel = (y - ref).abs().mean() / ref.abs().mean().clamp(min=1e-6)
     assert rel < 0.35, f"mean rel err {rel.item():.4f}"
+
+
+@pytest.mark.skipif(
+    not os.path.isfile(CPU_GGUF) or not os.path.isfile(GPU_SLICE),
+    reason="need cpu experts + gpu slice gguf",
+)
+@pytest.mark.parametrize("layer", [0, 11, 39])
+def test_router_top8_kt_near_torch_dequant_selected_layers(layer: int):
+    from kt_kernel.utils.llamafile import LlamafileMoEWrapper
+    from sglang.srt.model_loader.gguf_qwen35moe import qwen35moe_gguf_to_hf
+    from sglang.srt.model_loader.weight_utils import gguf_quant_weights_iterator
+    from sglang.srt.model_loader.gguf_qwen35moe import qwen35moe_linear_attn_vcfg
+
+    cfg = qwen35moe_linear_attn_vcfg(
+        linear_num_key_heads=16,
+        linear_num_value_heads=32,
+        linear_key_head_dim=128,
+        linear_value_head_dim=128,
+    )
+    gt_gate = f"blk.{layer}.ffn_gate_inp.weight"
+    hf_gate = qwen35moe_gguf_to_hf(gt_gate).replace("model.language_model.", "model.")
+    gate_w = dict(
+        gguf_quant_weights_iterator(GPU_SLICE, {gt_gate: hf_gate}, qwen35_linear_attn_vcfg=cfg)
+    )[hf_gate].float()
+
+    torch.manual_seed(42 + layer)
+    x = torch.randn(4, 2048, dtype=torch.bfloat16, device="cuda")
+    logits = x.float() @ gate_w.T.cuda()
+    scores = F.softmax(logits, dim=-1)
+    topw, topi = torch.topk(scores, 8, dim=-1)
+    topw = topw / topw.sum(dim=-1, keepdim=True)
+
+    gate = _dequant_expert_stack(CPU_GGUF, layer, "gate")
+    up = _dequant_expert_stack(CPU_GGUF, layer, "up")
+    down = _dequant_expert_stack(CPU_GGUF, layer, "down")
+    ref = _moe_torch_ref(x.float().cpu(), topi.cpu(), topw.cpu(), gate, up, down)
+
+    mask = torch.zeros(256, dtype=torch.bool)
+    w = LlamafileMoEWrapper(
+        layer_idx=layer,
+        num_experts=256,
+        num_experts_per_tok=8,
+        hidden_size=2048,
+        moe_intermediate_size=512,
+        gpu_experts_mask=mask,
+        cpuinfer_threads=4,
+        threadpool_count=1,
+        weight_path=CPU_GGUF,
+        chunked_prefill_size=512,
+        method="LLAMAFILE",
+    )
+    w.load_weights(torch.arange(256, dtype=torch.int32))
+    y = w.forward(x, topi, topw.float(), torch.cuda.current_stream()).float().cpu()
+
+    rel = (y - ref).abs().mean() / ref.abs().mean().clamp(min=1e-6)
+    assert rel < 0.35, f"layer={layer} mean rel err {rel.item():.4f}"
