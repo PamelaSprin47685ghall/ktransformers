@@ -42,6 +42,8 @@ def test_subset_index_and_single_shard_from_overlay(tmp_path):
                 "model_type": "qwen3_5_moe",
                 "text_config": {
                     "num_hidden_layers": 40,
+                    "hidden_size": 2048,
+                    "vocab_size": 32000,
                     "linear_num_key_heads": 16,
                     "linear_num_value_heads": 32,
                     "linear_key_head_dim": 128,
@@ -117,3 +119,74 @@ def test_subset_index_and_single_shard_from_overlay(tmp_path):
 
     # config.json and other metadata should be copied
     assert (out / "config.json").is_file(), "config.json not copied"
+
+
+def test_transposes_embed_and_lm_head_for_vocab_parallel_loader(tmp_path):
+    """package_gguf_bf16_for_awq transposes embed_tokens/lm_head for AutoAWQ.
+
+    ``gguf_gpu_slice_to_hf_awq_prep`` stores embed_tokens and lm_head in GGUF
+    native layout ``(hidden, vocab)``. AutoAWQ vocab-parallel loader expects
+    ``(vocab, hidden)``. Verify transpose in package step.
+    """
+    # ── template HF metadata dir ──────────────────────────────────
+    template = tmp_path / "template"
+    template.mkdir()
+    (template / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "qwen3_5_moe",
+                "text_config": {
+                    "num_hidden_layers": 40,
+                    "hidden_size": 2048,
+                    "vocab_size": 64,
+                },
+            }
+        )
+    )
+    (template / "model.safetensors.index.json").write_text(
+        json.dumps({
+            "metadata": {"total_size": 999},
+            "weight_map": {
+                "model.language_model.embed_tokens.weight": "model-00001.safetensors",
+                "lm_head.weight": "model-00001.safetensors",
+            },
+        })
+    )
+
+    # ── overlay with GGUF-native (hidden, vocab) layout ──────────
+    hidden, vocab = 2048, 64
+    overlay = tmp_path / "overlay.safetensors"
+    save_file(
+        {
+            "model.language_model.embed_tokens.weight": torch.randn(
+                hidden, vocab, dtype=torch.bfloat16
+            ),
+            "lm_head.weight": torch.randn(
+                hidden, vocab, dtype=torch.bfloat16
+            ),
+        },
+        str(overlay),
+    )
+
+    mod = _load_module()
+    out = tmp_path / "out"
+    mod.package_gguf_bf16_for_awq(overlay, template, out)
+
+    # ── assertions ────────────────────────────────────────────────
+    shard = out / "model.safetensors"
+    assert shard.is_file()
+
+    from safetensors import safe_open
+
+    with safe_open(str(shard), framework="pt") as f:
+        assert f.get_tensor("model.language_model.embed_tokens.weight").shape == (
+            vocab, hidden
+        ), f"embed_tokens not transposed: {f.get_tensor('model.language_model.embed_tokens.weight').shape}"
+        assert f.get_tensor("lm_head.weight").shape == (
+            vocab, hidden
+        ), f"lm_head not transposed: {f.get_tensor('lm_head.weight').shape}"
+
+    # index.json maps both keys
+    idx = json.loads((out / "model.safetensors.index.json").read_text())
+    assert "model.language_model.embed_tokens.weight" in idx["weight_map"]
+    assert "lm_head.weight" in idx["weight_map"]
