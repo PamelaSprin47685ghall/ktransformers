@@ -173,6 +173,8 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
         if physical_to_logical_map_cpu is None:
             physical_to_logical_map_cpu = torch.arange(self.num_experts, dtype=torch.int32, device="cpu")
             print(f"  Using default identity mapping for {self.num_experts} experts")
+        else:
+            physical_to_logical_map_cpu = physical_to_logical_map_cpu.to(torch.int32).contiguous()
 
         base_key = f"blk.{self.layer_idx}"
 
@@ -216,6 +218,12 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
         moe_config.down_type = down_type
         moe_config.hidden_type = hidden_type
 
+        print(f"DEBUG load_weights layer_idx={self.layer_idx} experts={self.num_experts} topk={self.num_experts_per_tok} hidden={self.hidden_size} inter={self.moe_intermediate_size}", flush=True)
+        print(f"  gate_data: ptr={gate_data.data_ptr()} size={gate_data.numel()} type={gate_type}", flush=True)
+        print(f"  up_data: ptr={up_data.data_ptr()} size={up_data.numel()} type={up_type}", flush=True)
+        print(f"  down_data: ptr={down_data.data_ptr()} size={down_data.numel()} type={down_type}", flush=True)
+        print(f"  p2l_map: ptr={physical_to_logical_map_cpu.data_ptr()} dtype={physical_to_logical_map_cpu.dtype}", flush=True)
+
         # Create MoE module
         self.moe = MOE(moe_config)
 
@@ -223,5 +231,7 @@ class LlamafileMoEWrapper(BaseMoEWrapper):
         self.cpu_infer.submit(self.moe.load_weights_task(physical_to_logical_map_cpu.data_ptr()))
         self.cpu_infer.sync()
 
-        # Drop original weights after loading
+        # Free original weights immediately after loading to avoid double RAM usage (earlyoom)
         self.weights_to_keep = None
+        import gc
+        gc.collect()

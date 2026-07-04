@@ -16,8 +16,13 @@ exec "${PY}" -m sglang.launch_server \
   --kt-cpuinfer 16 \
   --kt-threadpool-count 1 \
   --kt-num-gpu-experts 0 \
-  --mem-fraction-static 0.78 \
-  --context-length 2048 \
+  --mem-fraction-static 0.93 \
+  --max-mamba-cache-size 1 \
+  --max-running-requests 1 \
+  --max-total-tokens 64 \
+  --context-length 64 \
+  --skip-server-warmup \
+  --disable-radix-cache \
   --disable-cuda-graph \
   --trust-remote-code \
   --host 127.0.0.1 \

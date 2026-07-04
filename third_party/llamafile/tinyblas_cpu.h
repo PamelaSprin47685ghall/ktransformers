@@ -52,6 +52,7 @@
 // #include "log.h"
 #include "flags.h"
 #include "sgemm.h"
+#include "kt_ggml_compute_compat.h"
 // #include <cosmo.h>
 
 #pragma GCC diagnostic ignored "-Wpedantic"

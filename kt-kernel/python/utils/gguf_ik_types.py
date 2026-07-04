@@ -38,9 +38,9 @@ QK_K: int = 256
 #   static_assert(sizeof(block_iq5_ks_r4) == 4*sizeof(block_iq5_ks)) = 672 ✓
 
 IK_GGML_QUANT_SIZES: dict[int, tuple[int, int]] = {
-    GGML_TYPE_IQ2_K_R4:  (QK_K, 304),
-    GGML_TYPE_IQ4_KS_R4: (QK_K, 544),
-    GGML_TYPE_IQ5_KS_R4: (QK_K, 672),
+    GGML_TYPE_IQ2_K_R4:  (1024, 304),
+    GGML_TYPE_IQ4_KS_R4: (1024, 544),
+    GGML_TYPE_IQ5_KS_R4: (1024, 672),
 }
 
 

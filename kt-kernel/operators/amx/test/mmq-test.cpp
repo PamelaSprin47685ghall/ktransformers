@@ -9,8 +9,8 @@
 #include <algorithm>
 #include <type_traits>
 
-#include "ggml-impl.h"
-#include "ggml-quants.h"
+#include "llama.cpp/ggml-impl.h"
+#include "llama.cpp/ggml-quants.h"
 #include "mat-test.hpp"
 
 #if defined(__gnu_linux__)

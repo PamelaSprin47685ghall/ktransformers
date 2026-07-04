@@ -24,7 +24,10 @@ from typing import Dict, Sequence
 
 import numpy as np
 
-from .gguf_ik_types import IK_GGML_QUANT_SIZES
+try:
+    from .gguf_ik_types import IK_GGML_QUANT_SIZES
+except ImportError:
+    from gguf_ik_types import IK_GGML_QUANT_SIZES
 
 # ---------------------------------------------------------------------------
 # Standard GGML quant sizes (subset needed for n_bytes computation)

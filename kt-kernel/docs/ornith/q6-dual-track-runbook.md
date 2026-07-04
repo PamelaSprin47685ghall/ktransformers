@@ -9,7 +9,8 @@ Q6 全量 GGUF
   ├─ extract-gpu-non-expert.sh → ornith-gpu-non-expert.gguf (~2GB)
   │     └─ run-gguf-gpu-export.sh → model-gpu-from-gguf.safetensors (~4.6GB BF16)
   │           └─ package_gguf_bf16_for_awq.sh → ornith-gpu-bf16-standalone/
-  │                 └─ run-autoawq-ornith-gpu.sh → ornith-gpu-awq-from-gguf/
+  │                 ├─ run_awq_quantization.py → ornith-gpu-w4-compressed-from-gguf/（当前临时）
+  │                 └─ run-autoawq-ornith-gpu.sh → ornith-gpu-awq-from-gguf/（最终）
   └─ reextract-cpu-experts.sh → ornith-cpu-experts-q6k.gguf (~26GB)
 ```
 
@@ -31,10 +32,12 @@ bash reextract-cpu-experts.sh   # 耗时、大文件
 bash run_sglang_split_q6.sh
 ```
 
-Marlin 轨（需 AWQ 目录）在 AutoAWQ 支持 MoE 前阻塞；可先完成 `run-gguf-gpu-export.sh` + `package` 备料。
+Marlin 轨：仅 **shared_expert** w4；**~5GB GPU** 因导出已是 BF16。要 **~2GB** 非专家 → **Q6** `run_sglang_split_q6.sh`（见 `q6-vs-marlin-compression.md`）。
 
 ```bash
-# 曾规划：run-full-gguf-awq-pipeline.sh → run_sglang_marlin_ik.sh
+# 当前（8GB mlp-only Marlin）：run_awq_quantization.py → run_sglang_compressed_ik.sh
+# 详见 marlin-mlp-only-runbook.md
+# 最终：run-full-gguf-awq-pipeline.sh → run_sglang_marlin_ik.sh
 ```
 
 ## 起服参数（性能）
@@ -54,6 +57,16 @@ Marlin 轨（需 AWQ 目录）在 AutoAWQ 支持 MoE 前阻塞；可先完成 `r
 1. `curl http://127.0.0.1:30000/health` ready
 2. `POST /v1/chat/completions` 短英文 prompt；`embed_tokens` 须 `quant_config=gguf`；Q6_K `token_embd` 量化缓冲为 **vocab 行**（`index_select` dim=0），勿按逻辑 shape `[hidden,vocab]` 在 dim=1 取列
 3. 日志无 `SIGILL`、无 expert 双重加载、`Parameter model.embed_tokens` not found
+
+## AWQ 量化策略演进
+
+**2026-07-03**：AWQModifier 校准需 43GB+ CPU 内存（62GB 系统 OOM），`duo_scaling=both` 双份 scale 缓存 + autograd graph 保存导致峰值内存撞墙。根因：`config.json` 声明 `num_experts=256`，`AutoModelForCausalLM.from_pretrained` 按 config 建出 40 层专家融合张量（BF16 60GB）。
+
+**当前降级方案**：纯 symmetric w4a16 权重量化（无 AWQModifier），显式 `pipeline="datafree"` + `num_calibration_samples=0` + 临时 `num_experts=0` 跳过专家骨架分配。脚本 `run_awq_quantization.py` 手动加载 safetensors 并逐张量转置（GGUF meta 布局 (in,out) → PyTorch (out,in)），峰值内存 ~10GB。
+
+**⚠️ 必须 Marlin，严禁 BF16 缩水**：GPU 非专家权重仅 4.6GB，BF16 直接加载虽可行但性能太差。**必须走 Marlin 量化路径**，不允许用 BF16 逃避量化。当前 compressed-tensors w4a16 遇到 `size_n=32 not divisible by tile_n_size=64`（sglang `compressed_tensors_wNa16` 对 `RowParallelLinear` 的 `output_partition_sizes` 某层切出 32），需修 sglang 侧 Marlin shape 兼容或调整量化 ignore 列表。
+
+**路线图**：先用粗糙方法跑通全流程、确认无乱码、验收 E2E 可读性；待内存/资源允许时换回 AWQModifier 获取更高精度。
 
 ## 全量单文件 GGUF（非 split 主路径）
 

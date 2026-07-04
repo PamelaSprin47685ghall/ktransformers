@@ -11,7 +11,10 @@
 | `package_gguf_bf16_for_awq.sh` | 打包 standalone HF（无 70GB） |
 | `run-autoawq-ornith-gpu.sh` | AutoAWQ |
 | `run-full-gguf-awq-pipeline.sh` | export→package→awq |
-| `run_sglang_marlin_ik.sh` | Marlin GPU + kt CPU MoE |
+| `run_sglang_marlin_ik.sh` | Marlin GPU + kt CPU MoE（awq_marlin 终态） |
+| `run_sglang_compressed_ik.sh` | compressed-tensors w4 mlp-only + kt（8GB 过渡） |
+| `run_awq_quantization.py` | 生成 `ornith-gpu-w4-mlp-only-from-gguf` |
+| `curl-chat-smoke.sh` | health + 短 chat 冒烟 |
 | `run_sglang_gguf.sh` | on-the-fly GGUF 起服 |
 
-文档：`kt-kernel/docs/ornith/export-gpu-awq-marlin.md`
+文档：`export-gpu-awq-marlin.md`、`marlin-mlp-only-runbook.md`、`q6-dual-track-runbook.md`

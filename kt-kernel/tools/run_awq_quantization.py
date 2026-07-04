@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Low-memory w4 compressed quantization for the Ornith GPU slice.
 
+Quant policy: same coverage as ornith-gpu-non-expert.gguf (Q6 slice) — w4 all Linear
+except MoE router gates; routed experts not in slice. See w4-quant-policy.md + q6-vs-marlin-compression.md.
+
 三重障碍及对策：
 1. config.json 声明 num_experts=256 → from_pretrained 建 60GB 专家骨架 → OOM
    → 临时 patch num_experts=0
@@ -35,27 +38,25 @@ INPUT_MODEL = os.environ.get(
 )
 OUTPUT_DIR = os.environ.get(
     "ORNITH_W4_OUTPUT",
-    "/home/kunweiz/Desktop/Ornith/ornith-gpu-w4-mlp-only-from-gguf",
+    "/home/kunweiz/Desktop/Ornith/ornith-gpu-w4-q6-parity-from-gguf",
 )
 CONFIG_PATH = Path(INPUT_MODEL) / "config.json"
 SAFETENSORS_PATH = Path(INPUT_MODEL) / "model.safetensors"
 
-_ORNITH_W4_IGNORE_TOP_LEVEL = (
-    "embed_tokens",
-    "lm_head",
-)
+# Q6 切片 parity：仅 router / 标量门 / MTP 保持 BF16；勿 ignore 整段 shared_expert / attn
+_ORNITH_W4_IGNORE_TOP = ("lm_head",)
 
 _ORNITH_W4_IGNORE_PATTERNS = (
-    r"re:^model\.(language_model\.)?layers\.\d+\.self_attn(\.|$)",
-    r"re:^model\.(language_model\.)?layers\.\d+\.linear_attn(\.|$)",
     r"re:^model\.(language_model\.)?layers\.\d+\.mlp\.gate$",
     r"re:^model\.(language_model\.)?layers\.\d+\.mlp\.shared_expert_gate$",
-    r"re:^model\.(language_model\.)?layers\.\d+\.mlp\.shared_expert(\.|$)",
+    r"re:^model\.(language_model\.)?layers\.\d+\.mlp\.shared_expert\.gate\.weight$",
+    r"re:^model\.(language_model\.)?mtp\.",
+    r"re:^mtp\.",
 )
 
 
 def _ornith_w4_ignore_entries(num_layers: int) -> list[str]:
-    top = [f"model.{s}" for s in _ORNITH_W4_IGNORE_TOP_LEVEL]
+    top = [f"model.{s}" for s in _ORNITH_W4_IGNORE_TOP]
     return top + list(_ORNITH_W4_IGNORE_PATTERNS)
 
 
@@ -126,12 +127,13 @@ def main():
     try:
         model = _load_model_with_corrected_weights()
 
+        num_bits = int(os.environ.get("ORNITH_W4_BITS", "4"))
         quant_modifier = QuantizationModifier(
             config_groups={
                 "group_0": {
                     "targets": ["Linear"],
                     "weights": {
-                        "num_bits": 4,
+                        "num_bits": num_bits,
                         "group_size": 128,
                         "symmetric": True,
                         "strategy": "group",
@@ -142,10 +144,12 @@ def main():
         )
         recipe = Recipe.from_modifiers([quant_modifier])
 
-        print("w4a16 quantization (datafree, experts=0, weights corrected)", file=sys.stderr)
+        print(f"w{num_bits}a16 quantization (datafree, experts=0, weights corrected)", file=sys.stderr)
         print(f"Output: {OUTPUT_DIR}", file=sys.stderr)
 
         model.cpu()
+        # llmcompressor calibration 会把 offload 权重 onload 到 CUDA；8GB 上须 CPU-only 量化
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -179,8 +183,7 @@ def main():
         out_cfg.write_text(json.dumps(cfg_out, indent=2, ensure_ascii=False))
 
     _patch_router_weights()
-    _patch_full_attention_bf16()
-    _patch_shared_expert_bf16()
+    _patch_shared_expert_gate_bf16()
     _patch_lm_head_bf16()
     _patch_serving_config_causal_lm()
     _patch_quantization_ignore_config()
@@ -278,20 +281,16 @@ def _replace_bf16_weights(predicate, label: str) -> None:
     print(f"Patched {patched} {label} BF16 weights from input", file=sys.stderr)
 
 
-def _patch_full_attention_bf16() -> None:
-    def is_full_attention_weight(name: str) -> bool:
-        return ".self_attn." in name and (
-            name.endswith("_proj.weight") or name.endswith("_norm.weight")
-        )
-
-    _replace_bf16_weights(is_full_attention_weight, "full_attention")
-
-
-def _patch_shared_expert_bf16() -> None:
-    _replace_bf16_weights(lambda name: "mlp.shared_expert" in name, "shared_expert")
+def _patch_shared_expert_gate_bf16() -> None:
+    """仅 scalar shared_expert.gate；gate/up/down_proj 留给 w4 Marlin。"""
+    _replace_bf16_weights(
+        lambda name: name.endswith(".mlp.shared_expert.gate.weight"),
+        "shared_expert_gate",
+    )
 
 
 def _patch_lm_head_bf16() -> None:
+    """datafree w4 lm_head → 乱码；Q6 文件里虽量化，Marlin 轨出口保持 BF16。"""
     from safetensors.torch import load_file, save_file
 
     in_ckpt = load_file(str(SAFETENSORS_PATH))

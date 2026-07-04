@@ -14,8 +14,12 @@ import torch
 from enum import IntEnum
 from safetensors import safe_open
 from gguf.gguf_reader import GGUFReader
-from .gguf_ik_types import IK_GGML_QUANT_SIZES
-from .gguf_raw_reader import read_gguf_tensor_index
+try:
+    from .gguf_ik_types import IK_GGML_QUANT_SIZES
+    from .gguf_raw_reader import read_gguf_tensor_index
+except ImportError:
+    from gguf_ik_types import IK_GGML_QUANT_SIZES
+    from gguf_raw_reader import read_gguf_tensor_index
 
 
 class GGMLQuantizationType(IntEnum):
@@ -56,6 +60,9 @@ def translate_name_to_gguf(name):
     """
     Translate PyTorch tensor name to GGUF format
     """
+    name = name.replace("model.language_model.layers.", "blk.")
+    name = name.replace("model.language_model.embed_tokens.", "token_embd.")
+    name = name.replace("model.language_model.norm.", "output_norm.")
     name = name.replace("lm_head.", "output.")
     name = name.replace("model.embed_tokens.", "token_embd.")
     name = name.replace("model.norm.", "output_norm.")
@@ -1094,7 +1101,11 @@ class GGUFLoader:
             )
         n_bytes = n_elements * type_size // block_size
 
+        print(f"DEBUG get_undequanted_tensor_and_ggml_type name={name}", flush=True)
+        print(f"  mmap_data len={len(mmap_data)}", flush=True)
+        print(f"  offset={offset} n_bytes={n_bytes}", flush=True)
         data_bytes = mmap_data[offset : offset + n_bytes]
+        print(f"  data_bytes len={len(data_bytes)}", flush=True)
         data = torch.from_numpy(np.frombuffer(data_bytes, dtype=np.uint8).copy())
 
         return data, ggml_type

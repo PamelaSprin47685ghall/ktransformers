@@ -6,6 +6,7 @@
 #pragma once
 #include <stdbool.h>
 #include <cstddef>
+#include "kt_ggml_compute_compat.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -108,6 +108,11 @@ def test_layer0_router_top8_kt_near_torch_dequant():
     w.load_weights(torch.arange(256, dtype=torch.int32))
     y = w.forward(x, topi, topw.float(), torch.cuda.current_stream()).float().cpu()
 
+    print("Ref first 10:", ref[0][:10].tolist())
+    print("Y first 10:", y[0][:10].tolist())
+    print("Ref is finite:", ref.isfinite().all().item())
+    print("Y is finite:", y.isfinite().all().item())
+
     rel = (y - ref).abs().mean() / ref.abs().mean().clamp(min=1e-6)
     assert rel < 0.35, f"mean rel err {rel.item():.4f}"
 

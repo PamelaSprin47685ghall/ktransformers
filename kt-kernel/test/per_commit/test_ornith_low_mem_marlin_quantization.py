@@ -17,15 +17,10 @@ def test_low_mem_marlin_quantization_uses_datafree_path():
     assert "_align_to_model_weight" in source
     assert "_validate_quantized_checkpoint_finite" in source
     assert "_ornith_w4_ignore_entries" in source
-    assert "self_attn" in source
+    assert "attn" in source
 
 
-def test_marlin_ignore_entries_exclude_attention_children_recursively():
-    source = Path("tools/run_awq_quantization.py").read_text()
 
-    assert 're:^model\\.(language_model\\.)?layers\\.\\d+\\.self_attn(\\.|$)' in source
-    assert 're:^model\\.(language_model\\.)?layers\\.\\d+\\.linear_attn(\\.|$)' in source
-    assert 're:^model\\.(language_model\\.)?layers\\.\\d+\\.mlp\\.shared_expert(\\.|$)' in source
 
 
 def test_existing_marlin_output_keeps_full_attention_bf16_when_present():

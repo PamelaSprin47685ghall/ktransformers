@@ -414,10 +414,34 @@ message(STATUS "ARCH_FLAGS: ${ARCH_FLAGS}")
 add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:${ARCH_FLAGS}>")
 add_compile_options("$<$<COMPILE_LANGUAGE:C>:${ARCH_FLAGS}>")
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/pybind11 ${CMAKE_CURRENT_BINARY_DIR}/third_party/pybind11)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/llama.cpp ${CMAKE_CURRENT_BINARY_DIR}/third_party/llama.cpp)
+# ── ik_llama.cpp options ──────────────────────────────────────────
+# Suppress examples/tests/server in the third_party build
+set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+
+# Disable GPU backends in ik's ggml – kt-kernel manages GPU separately
+set(GGML_CUDA   OFF CACHE BOOL "" FORCE)
+set(GGML_METAL  OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
+
+# ik's ggml reads GGML_* SIMD options; forward our LLAMA_* choices
+set(GGML_AVX         ${LLAMA_AVX}         CACHE BOOL "" FORCE)
+set(GGML_AVX2        ${LLAMA_AVX2}        CACHE BOOL "" FORCE)
+set(GGML_AVX512      ${LLAMA_AVX512}      CACHE BOOL "" FORCE)
+set(GGML_AVX512_VBMI ${LLAMA_AVX512_VBMI} CACHE BOOL "" FORCE)
+set(GGML_AVX512_VNNI ${LLAMA_AVX512_VNNI} CACHE BOOL "" FORCE)
+set(GGML_AVX512_BF16 ${LLAMA_AVX512_BF16} CACHE BOOL "" FORCE)
+set(GGML_FMA         ${LLAMA_FMA}         CACHE BOOL "" FORCE)
+if(NOT MSVC)
+  set(GGML_F16C      ${LLAMA_F16C}        CACHE BOOL "" FORCE)
+endif()
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/pybind11    ${CMAKE_CURRENT_BINARY_DIR}/third_party/pybind11)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ik_llama.cpp ${CMAKE_CURRENT_BINARY_DIR}/third_party/ik_llama.cpp)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../third_party)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../third_party/ik_llama.cpp/ggml/src)
 if(KTRANSFORMERS_USE_CUDA)
     include(CheckLanguage)
     check_language(CUDA)

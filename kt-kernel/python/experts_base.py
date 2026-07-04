@@ -419,9 +419,13 @@ class BaseMoEWrapper(_MoEBase, ABC):
             immediate_ids = topk_ids_long
             deferred_ids = None
 
+        print(f"[submit_forward] flat_hidden_states min={flat_hidden_states.float().min().item()} max={flat_hidden_states.float().max().item()} finite={flat_hidden_states.isfinite().all().item()}")
         input_tensor_cpu[current_slot].copy_(flat_hidden_states, non_blocking=True)
         weights_cpu[current_slot].copy_(topk_weights, non_blocking=True)
         immediate_experts_ids_cpu[current_slot].copy_(immediate_ids, non_blocking=True)
+        print(f"[submit_forward] input_tensor_cpu min={input_tensor_cpu[current_slot].float().min().item()} max={input_tensor_cpu[current_slot].float().max().item()} finite={input_tensor_cpu[current_slot].isfinite().all().item()}")
+        print(f"[submit_forward] immediate_experts_ids_cpu min={immediate_experts_ids_cpu[current_slot].min().item()} max={immediate_experts_ids_cpu[current_slot].max().item()} distinct={torch.unique(immediate_experts_ids_cpu[current_slot]).tolist()}")
+        print(f"[submit_forward] weights_cpu min={weights_cpu[current_slot].float().min().item()} max={weights_cpu[current_slot].float().max().item()} finite={weights_cpu[current_slot].isfinite().all().item()}")
 
         incremental = BaseMoEWrapper._layer_has_pending_deferred.get(self.layer_idx - 1, False)
         task = self.moe.forward_task(
@@ -491,6 +495,7 @@ class BaseMoEWrapper(_MoEBase, ABC):
             self.cpu_infer.sync(allow_pending)
             if getattr(self, "_cpu_only_pending_sync", False):
                 self._cpu_only_pending_sync = False
+        print(f"[sync_forward] output_cpu min={output_cpu[current_slot].float().min().item()} max={output_cpu[current_slot].float().max().item()} finite={output_cpu[current_slot].isfinite().all().item()}")
         output_gpu[current_slot].copy_(output_cpu[current_slot], non_blocking=True)
         return output_gpu[current_slot]
 

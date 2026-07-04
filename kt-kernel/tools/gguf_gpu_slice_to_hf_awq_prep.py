@@ -48,6 +48,7 @@ def _load_text_config(template_dir: Path) -> dict:
         "num_value_heads": v_heads,
         "head_k_dim": int(tc["linear_key_head_dim"]),
         "head_v_dim": int(tc["linear_value_head_dim"]),
+        "hidden_size": int(tc["hidden_size"]),
         "num_hidden_layers": int(tc["num_hidden_layers"]),
     }
 
@@ -91,10 +92,31 @@ def _tensor_to_torch(tensor, dtype: torch.dtype) -> torch.Tensor:
 def _import_transforms():
     from sglang.srt.model_loader.gguf_qwen35moe import (
         apply_gguf_to_hf_weight,
+        qwen35_gguf_dequant_apply_for_load,
+        qwen35_gguf_dequant_from_reader_tensor,
+        qwen35moe_gguf_on_the_fly_needs_hf_transform,
         qwen35moe_gguf_to_hf,
     )
 
-    return apply_gguf_to_hf_weight, qwen35moe_gguf_to_hf
+    return (
+        apply_gguf_to_hf_weight,
+        qwen35_gguf_dequant_apply_for_load,
+        qwen35_gguf_dequant_from_reader_tensor,
+        qwen35moe_gguf_on_the_fly_needs_hf_transform,
+        qwen35moe_gguf_to_hf,
+    )
+
+
+def _gguf_tensor_to_hf_weight(tensor, hf_flat: str, hf_name: str, vcfg: dict, dtype: torch.dtype):
+    """Match ``gguf_quant_weights_iterator`` dequant+transform for Q6_K linear_attn."""
+    apply_gguf, dequant_apply, dequant_reader, needs_transform, _ = _import_transforms()
+    ttype = tensor.tensor_type
+    if ttype != GGMLQuantizationType.F32 and needs_transform(hf_name, vcfg):
+        dense = dequant_reader(tensor)
+        w = dequant_apply(dense, hf_name, vcfg)
+        return w.to(dtype)
+    w = _tensor_to_torch(tensor, dtype)
+    return apply_gguf(w, hf_name, vcfg)
 
 
 def _iter_mtp_tensors(path: str):
@@ -112,7 +134,7 @@ def export_slice(
     mtp_source: Optional[Path],
     max_tensors: int = 0,
 ) -> None:
-    apply_gguf_to_hf_weight, qwen35moe_gguf_to_hf = _import_transforms()
+    _, _, _, _, qwen35moe_gguf_to_hf = _import_transforms()
     vcfg = _load_text_config(template_dir)
     reader = gguf.GGUFReader(str(gguf_path))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -147,8 +169,7 @@ def export_slice(
             log.warning("unmap %s", gguf_name)
             continue
         hf_name = _flat_to_vl(hf_flat)
-        w = _tensor_to_torch(tensor, dtype)
-        w = apply_gguf_to_hf_weight(w, hf_name, vcfg)
+        w = _gguf_tensor_to_hf_weight(tensor, hf_flat, hf_name, vcfg, dtype)
         state[hf_name] = w.contiguous().cpu()
         n += 1
         if n % 50 == 0:
@@ -163,8 +184,7 @@ def export_slice(
             hf_name = _flat_to_vl(hf_flat)
             if hf_name in state:
                 continue
-            w = _tensor_to_torch(t, dtype)
-            w = apply_gguf_to_hf_weight(w, hf_name, vcfg)
+            w = _gguf_tensor_to_hf_weight(t, hf_flat, hf_name, vcfg, dtype)
             state[hf_name] = w.contiguous().cpu()
 
     out_file = out_dir / "model-gpu-from-gguf.safetensors"

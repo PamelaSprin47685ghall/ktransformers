@@ -13,4 +13,4 @@ def test_iqk_mul_mat_moe_switch_documents_iq2_k_r4_gap():
     text = inc.read_text()
     assert "GGML_TYPE_Q6_K" in text
     # ik GGML_TYPE_IQ2_K_R4 = 337; pinned ggml.h ends at BF16=30
-    assert "337" not in text and "IQ2_K_R4" not in text
+    assert "337" in text and "IQ2_K_R4" in text

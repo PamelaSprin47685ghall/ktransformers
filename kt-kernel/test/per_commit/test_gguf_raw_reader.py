@@ -46,7 +46,7 @@ def test_read_iq2_k_r4_tensor_metadata():
     payload = np.zeros(304, dtype=np.uint8).tobytes()
     with tempfile.TemporaryDirectory() as td:
         p = Path(td) / "t.gguf"
-        _write_minimal_gguf(p, "blk.0.ffn_gate_exps.weight", 337, payload, [1, 256])
+        _write_minimal_gguf(p, "blk.0.ffn_gate_exps.weight", 337, payload, [1, 1024])
         idx = read_gguf_tensor_index(str(p))
         t = idx["blk.0.ffn_gate_exps.weight"]
         assert t.dtype_id == 337
